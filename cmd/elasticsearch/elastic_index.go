@@ -22,6 +22,7 @@ func elasticIndexCmd() *cobra.Command {
 		Short: "LogExpo elastic index [Flags]",
 		Long:  `Create an index in elastic with given flags as index configuration`,
 		Run: func(cmd *cobra.Command, args []string) {
+			InitElastic()
 			index := args[0]
 
 			mapping := `{

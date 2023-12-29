@@ -37,13 +37,12 @@ func elasticCmd() *cobra.Command {
 }
 
 func init() {
-	cobra.OnInitialize(InitElastic)
 	Elastic = elasticCmd()
 	elasticClientFlags(Elastic)
 	docker.RootCmd.AddCommand(Elastic)
 }
 func elasticClientFlags(cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVarP(&ElasticMasterUrl, "node", "N", "http://localhost:9200", "Elastic master node to connect (default: localhost:9200)")
+	cmd.PersistentFlags().StringVarP(&ElasticMasterUrl, "node", "n", "http://localhost:9200", "Elastic master node to connect (default: localhost:9200)")
 	cmd.PersistentFlags().StringVarP(&Username, "username", "u", "elastic", "Elastic auth username (default: elastic)")
 	cmd.PersistentFlags().StringVarP(&Password, "password", "p", "changeme", "Elastic auth password (default: changeme)")
 	cmd.PersistentFlags().BoolVarP(&Auth, "auth", "a", false, "Elastic auth enable (default: false)")

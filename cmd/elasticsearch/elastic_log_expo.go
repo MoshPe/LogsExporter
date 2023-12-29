@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	docker "github.com/LogsExporter/cmd"
+	"github.com/cheggaaa/pb/v3"
 	"github.com/docker/docker/api/types"
 	"github.com/dustin/go-humanize"
 	"github.com/elastic/go-elasticsearch/v7/esutil"
@@ -14,6 +15,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 	"io"
 	"log"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,6 +31,7 @@ type Event struct {
 
 var (
 	index           string
+	filePath        string
 	numWorkers      int
 	flushBytes      int
 	countSuccessful uint64
@@ -41,24 +44,41 @@ func elasticLogExpoCmd() *cobra.Command {
 		Short: "LogExpo elastic export [OPTIONS] CONTAINER",
 		Long:  `Export the container logs to elastic index`,
 		Run: func(cmd *cobra.Command, args []string) {
+			InitElastic()
 			ctx := context.Background()
-			containerId := args[0]
-			options := types.ContainerLogsOptions{
-				ShowStdout: true,
-				Timestamps: cmd.Flag("timestamps").Changed,
-				Details:    cmd.Flag("details").Changed,
-			}
-			out, err := docker.Client.ContainerLogs(ctx, containerId, options)
-			if err != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\n", err.Error())
-				return
+			var out io.ReadCloser
+			var err error
+			if filePath == "" {
+				containerId := args[0]
+				options := types.ContainerLogsOptions{
+					ShowStdout: true,
+					Timestamps: cmd.Flag("timestamps").Changed,
+					Details:    cmd.Flag("details").Changed,
+				}
+				out, err = docker.Client.ContainerLogs(ctx, containerId, options)
+				if err != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\n", err.Error())
+					return
+				}
+			} else {
+				// Open the file
+				file, err := os.Open(filePath)
+				if err != nil {
+					fmt.Println("Error opening file:", err)
+					return
+				}
+				defer file.Close() // Make sure to close the file when done
+
+				// Create an io.ReadCloser using ioutil.NopCloser
+				out = io.NopCloser(file)
 			}
 
 			a, _ := io.ReadAll(out)
 			if !utf8.Valid(a) {
 				fmt.Printf("%#v\n", out)
 			}
-			str := strings.ReplaceAll(string(a), "\\n", "\n")
+			str := strings.ReplaceAll(string(a), "\\n", "")
+			str = strings.ReplaceAll(str, "\r", "")
 
 			c := make([]byte, 0)
 
@@ -72,31 +92,7 @@ func elasticLogExpoCmd() *cobra.Command {
 				return r == ',' || r == '\n'
 			})
 
-			var events []Event
-			for i := 0; i < len(parts)-1; i += 2 {
-				name := strings.TrimSpace(parts[i])
-				timeStr := strings.TrimSpace(parts[i+1])
-
-				// Convert the time string to uint32
-				time, err := strconv.ParseInt(timeStr, 10, 64)
-				if err != nil {
-					fmt.Println("Error:", err)
-					return
-				}
-
-				//time, err := strconv.ParseUint(timeStr, 10, 32)
-				//if err != nil {
-				//	fmt.Println("Error parsing time:", err)
-				//	continue
-				//}
-
-				// Create an Event object and append to the array
-				event := Event{
-					Name: name,
-					Time: time,
-				}
-				events = append(events, event)
-			}
+			bar := pb.StartNew(len(parts) / 2)
 
 			bi, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
 				Index:         index,            // The default index name
@@ -108,31 +104,36 @@ func elasticLogExpoCmd() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Error creating the indexer: %s", err)
 			}
-
 			start := time.Now().UTC()
-			for _, a := range events {
-				// Prepare the data payload: encode article to JSON
-				//
-				data, err := json.Marshal(a)
+			for i := 0; i < len(parts)-1; i += 2 {
+				name := strings.TrimSpace(parts[i])
+				timeStr := strings.TrimSpace(parts[i+1])
+
+				// Convert the time string to uint32
+				time, err := strconv.ParseInt(timeStr, 10, 64)
 				if err != nil {
-					log.Fatalf("Cannot encode event %s: %s", a.Name, err)
+					fmt.Println("Error:", err)
+					return
+				}
+
+				event := Event{
+					Name: name,
+					Time: time,
+				}
+				data, err := json.Marshal(event)
+				if err != nil {
+					log.Fatalf("Cannot encode event %s: %s", event.Name, err)
 				}
 
 				err = bi.Add(
 					context.Background(),
 					esutil.BulkIndexerItem{
-						// Action field configures the operation to perform (index, create, delete, update)
 						Action: "index",
-
-						// Body is an `io.Reader` with the payload
-						Body: bytes.NewReader(data),
-
-						// OnSuccess is called for each successful operation
+						Body:   bytes.NewReader(data),
 						OnSuccess: func(ctx context.Context, item esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem) {
 							atomic.AddUint64(&countSuccessful, 1)
+							bar.Increment()
 						},
-
-						// OnFailure is called for each failed operation
 						OnFailure: func(ctx context.Context, item esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem, err error) {
 							if err != nil {
 								log.Printf("ERROR: %s", err)
@@ -152,6 +153,7 @@ func elasticLogExpoCmd() *cobra.Command {
 			}
 
 			biStats := bi.Stats()
+			bar.Finish()
 
 			// Report the results: number of indexed docs, number of errors, duration, indexing rate
 			//
@@ -177,6 +179,12 @@ func elasticLogExpoCmd() *cobra.Command {
 			}
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
+			if index == "" {
+				return errors.New("required index name")
+			}
+			if filePath != "" {
+				return nil
+			}
 			if len(args) != 1 {
 				return errors.New("required a container ID / name")
 			}
@@ -194,6 +202,7 @@ func logsFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("details", "", false, "Give extended privileges to the command")
 	cmd.Flags().BoolP("timestamps", "", false, "Give extended privileges to the command")
 	cmd.Flags().StringVarP(&index, "index", "i", "LogExpoLogs", "Elastic index to push results (default: LogExpoLogs")
+	cmd.Flags().StringVarP(&filePath, "filePath", "", "", "Use file instead of container logs")
 	cmd.Flags().IntVarP(&numWorkers, "workers", "w", runtime.NumCPU(), "Number of indexer workers")
 	cmd.Flags().IntVarP(&flushBytes, "flush", "f", 5e+6, "Flush threshold in bytes (default: "+strconv.FormatInt(5e+6, 10)+")")
 }

@@ -47,6 +47,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&host.TLSCaCertPath, "tlscacert", os.ExpandEnv("$CLIENT_CONFIG/ca.pem"), "Trust certs signed only by this CA")
 	RootCmd.PersistentFlags().StringVar(&host.TLSCertPath, "tlscert", os.ExpandEnv("$CLIENT_CONFIG/cert.pem"), "Path to TLS certificate file")
 	RootCmd.PersistentFlags().StringVar(&host.TLSKeyPath, "tlskey", os.ExpandEnv("$CLIENT_CONFIG/key.pem"), "Path to TLS key file")
+	RootCmd.CompletionOptions.DisableDefaultCmd = true
 }
 
 func InitClient() {

@@ -1,4 +1,7 @@
 const name = 'ServiceA'
+const fs = require('fs');
+
+const filePath = 'example.txt';
 
 let fullName = ''
 async function main() {
@@ -12,7 +15,13 @@ async function main() {
             fullName += `${name}_${letter}_${letterB}, ${String(Date.now())},`
         }
     }
-    console.log(fullName)
+    fs.writeFile(filePath, fullName, (err) => {
+        if (err) {
+            console.error('Error writing to file:', err);
+        } else {
+            console.log('File has been written successfully.');
+        }
+    });
 }
 
 
