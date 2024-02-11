@@ -83,26 +83,6 @@ func containerLsCmd() *cobra.Command {
 			// Flush the tabwriter
 			w.Flush()
 
-			//imageLen = findMaxImageLength(containers)
-			//if imageLen < len("CONTAINER IMAGE") {
-			//	imageLen = 3
-			//}
-			//portLen, ports := findMaxPortLength(containers)
-			//if portLen < len("PORTS") {
-			//	imageLen = 3
-			//}
-			//for i, container := range containers {
-			//	printContainers[i+1] = ""
-			//	printContainers[i+1] = fmt.Sprintf("%3.12s %-*s%-*s%s%s%s%s%s",
-			//		container.ID, 4, container.Image, imageLen, container.Command, time.Unix(container.Created, 0).Format(time.RFC850), container.Status, ports[i],
-			//		strings.Repeat(" ", portLen), container.Names[0][1:])
-			//}
-			//printContainers[0] = fmt.Sprintf("CONTAINER ID   CONTAINER IMAGE%s"+
-			//	"COMMAND   CREATED   STATUS   PORTS   %s   NAMES", strings.Repeat(" ", imageLen), strings.Repeat(" ", portLen))
-			//
-			//for _, container := range printContainers {
-			//	fmt.Println(container)
-			//}
 		},
 	}
 	lsFlags(containerLsCmd)
